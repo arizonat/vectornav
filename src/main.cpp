@@ -41,6 +41,8 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <vectornav/Ins.h>
 
+#include <dynamic_reconfigure/server.h>
+#include <vectornav/VectornavConfig.h>
 
 ros::Publisher pubIMU, pubMag, pubGPS, pubOdom, pubTemp, pubPres, pubIns;
 ros::ServiceServer resetOdomSrv;
@@ -66,6 +68,33 @@ using namespace vn::math;
 using namespace vn::sensors;
 using namespace vn::protocol::uart;
 using namespace vn::xplat;
+
+// Create a VnSensor object and connect to sensor
+VnSensor vs;
+
+void dynamic_reconfigure_callback(vectornav::VectornavConfig &config, uint32_t level){
+  ROS_INFO("===Configuration Update===");
+  VpeBasicControlRegister vpeReg = vs.readVpeBasicControl();
+  vpeReg.headingMode = static_cast<HeadingMode>(config.vpereg_headingmode);
+  vpeReg.enable = static_cast<VpeEnable>(config.vpereg_enable);
+  vpeReg.filteringMode = static_cast<VpeMode>(config.vpereg_filteringmode);
+  vpeReg.tuningMode = static_cast<VpeMode>(config.vpereg_tuningmode);
+  vs.writeVpeBasicControl(vpeReg);
+  vpeReg = vs.readVpeBasicControl();
+  ROS_INFO("Heading mode: %d", vpeReg.headingMode);
+  ROS_INFO("VPE Enabled: %d", vpeReg.enable);
+  ROS_INFO("Filtering Mode: %d", vpeReg.filteringMode);
+  ROS_INFO("Tuning Mode: %d", vpeReg.tuningMode);
+  
+  MagnetometerCalibrationControlRegister magReg = vs.readMagnetometerCalibrationControl();
+  magReg.hsiMode = static_cast<HsiMode>(config.magreg_mode);
+  magReg.hsiOutput = static_cast<HsiOutput>(config.magreg_output);
+  magReg.convergeRate = config.magreg_convergerate;
+  magReg = vs.readMagnetometerCalibrationControl();
+  ROS_INFO("HSI Mode: %d", magReg.hsiMode); 
+  ROS_INFO("HSI Output: %d", magReg.hsiOutput);
+  ROS_INFO("HSI Converge Rate: %d", magReg.convergeRate);
+}
 
 // Method declarations for future use.
 void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index);
@@ -106,11 +135,16 @@ bool resetOdom(std_srvs::Empty::Request &req, std_srvs::Empty::Response &resp)
 
 int main(int argc, char *argv[])
 {
-
     // ROS node init
     ros::init(argc, argv, "vectornav");
     ros::NodeHandle n;
     ros::NodeHandle pn("~");
+
+    dynamic_reconfigure::Server<vectornav::VectornavConfig> server;
+    dynamic_reconfigure::Server<vectornav::VectornavConfig>::CallbackType drf;
+
+    drf = boost::bind(&dynamic_reconfigure_callback, _1, _2);
+    server.setCallback(drf);
 
     pubIMU = n.advertise<sensor_msgs::Imu>("vectornav/IMU", 1000);
     pubMag = n.advertise<sensor_msgs::MagneticField>("vectornav/Mag", 1000);
@@ -155,9 +189,6 @@ int main(int argc, char *argv[])
     }
 
     ROS_INFO("Connecting to : %s @ %d Baud", SensorPort.c_str(), SensorBaudrate);
-
-    // Create a VnSensor object and connect to sensor
-    VnSensor vs;
 
     // Default baudrate variable
     int defaultBaudrate;
@@ -263,6 +294,21 @@ int main(int argc, char *argv[])
     // Set Data output Freq [Hz]
     vs.writeAsyncDataOutputFrequency(async_output_rate);
     vs.registerAsyncPacketReceivedHandler(&user_data, BinaryAsyncMessageReceived);
+
+    // Configure the VPE and HSI Control Registers
+    // Heading modes: HEADINGMODE_ABSOLUTE=0, HEADINGMODE_RELATIVE=1, HEADINGMODE_INDOOR=2
+    // Filtering modes: OFF=0, ON=1
+    // Tuning modes: OFF=0, ON=1
+    VpeBasicControlRegister vpeReg = vs.readVpeBasicControl();
+    ROS_INFO("Heading mode: %d", vpeReg.headingMode);
+    ROS_INFO("VPE Enabled: %d", vpeReg.enable);
+    ROS_INFO("Filtering Mode: %d", vpeReg.filteringMode);
+    ROS_INFO("Tuning Mode: %d", vpeReg.tuningMode);
+
+    MagnetometerCalibrationControlRegister magReg = vs.readMagnetometerCalibrationControl();
+    ROS_INFO("HSI Mode: %d", magReg.hsiMode); // HSIMODE_OFF = 0, HSIMODE_RUN = 1, HSIMODE_RESET = 
+    ROS_INFO("HSI Output: %d", magReg.hsiOutput); //HSIOUTPUT_NOONBOARD = 1 (HSI not applied), HSIOUTPUT_USEONBOARD = 3 (HSI is applied)
+    ROS_INFO("HSI Converge Rate: %d", magReg.convergeRate); //1-5, 1 slow over 60-90sec, 5 fast over 15-20sec
 
     // You spin me right round, baby
     // Right round like a record, baby
