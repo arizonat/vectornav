@@ -10,6 +10,7 @@ project(vectornav)
 find_package(catkin REQUIRED COMPONENTS
     roscpp
     message_generation
+    dynamic_reconfigure
 )
 
 add_message_files(
@@ -20,6 +21,10 @@ add_message_files(
 generate_messages(
     DEPENDENCIES
     std_msgs
+)
+
+generate_dynamic_reconfigure_options(
+    config/vn100.cfg
 )
 
 ###################################
@@ -46,7 +51,7 @@ include_directories(vnproglib-1.1.5.0/cpp/include ${catkin_INCLUDE_DIRS})
 ## Declare a cpp library
 ## Declare a cpp executable
 add_executable(vnpub src/main.cpp)
-add_dependencies(vnpub ${PROJECT_NAME}_generate_messages)
+add_dependencies(vnpub ${PROJECT_NAME}_generate_messages ${PROJECT_NAME}_gencfg)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(vnpub

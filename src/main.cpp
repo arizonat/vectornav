@@ -86,6 +86,13 @@ void dynamic_reconfigure_callback(vectornav::VectornavConfig &config, uint32_t l
   magReg.hsiOutput = static_cast<HsiOutput>(config.magreg_output);
   magReg.convergeRate = config.magreg_convergerate;
 
+  // Configure the VPE and HSI Control Registers
+  // Heading modes: HEADINGMODE_ABSOLUTE=0, HEADINGMODE_RELATIVE=1, HEADINGMODE_INDOOR=2
+  // Filtering modes: OFF=0, ON=1
+  // Tuning modes: OFF=0, ON=1
+  // HSIMODE_OFF = 0, HSIMODE_RUN = 1, HSIMODE_RESET = 2
+  // HSIOUTPUT_NOONBOARD = 1 (HSI not applied), HSIOUTPUT_USEONBOARD = 3 (HSI is applied)
+  //1-5, 1 slow over 60-90sec, 5 fast over 15-20sec
   vpeReg = vs.readVpeBasicControl();
   magReg = vs.readMagnetometerCalibrationControl();
   ROS_INFO("Heading mode: %d", vpeReg.headingMode);
@@ -141,11 +148,6 @@ int main(int argc, char *argv[])
     ros::NodeHandle n;
     ros::NodeHandle pn("~");
 
-    dynamic_reconfigure::Server<vectornav::VectornavConfig> server;
-    dynamic_reconfigure::Server<vectornav::VectornavConfig>::CallbackType drf;
-
-    drf = boost::bind(&dynamic_reconfigure_callback, _1, _2);
-    server.setCallback(drf);
 
     pubIMU = n.advertise<sensor_msgs::Imu>("vectornav/IMU", 1000);
     pubMag = n.advertise<sensor_msgs::MagneticField>("vectornav/Mag", 1000);
@@ -296,20 +298,11 @@ int main(int argc, char *argv[])
     vs.writeAsyncDataOutputFrequency(async_output_rate);
     vs.registerAsyncPacketReceivedHandler(&user_data, BinaryAsyncMessageReceived);
 
-    // Configure the VPE and HSI Control Registers
-    // Heading modes: HEADINGMODE_ABSOLUTE=0, HEADINGMODE_RELATIVE=1, HEADINGMODE_INDOOR=2
-    // Filtering modes: OFF=0, ON=1
-    // Tuning modes: OFF=0, ON=1
-    VpeBasicControlRegister vpeReg = vs.readVpeBasicControl();
-    ROS_INFO("Heading mode: %d", vpeReg.headingMode);
-    ROS_INFO("VPE Enabled: %d", vpeReg.enable);
-    ROS_INFO("Filtering Mode: %d", vpeReg.filteringMode);
-    ROS_INFO("Tuning Mode: %d", vpeReg.tuningMode);
+    dynamic_reconfigure::Server<vectornav::VectornavConfig> server;
+    dynamic_reconfigure::Server<vectornav::VectornavConfig>::CallbackType drf;
 
-    MagnetometerCalibrationControlRegister magReg = vs.readMagnetometerCalibrationControl();
-    ROS_INFO("HSI Mode: %d", magReg.hsiMode); // HSIMODE_OFF = 0, HSIMODE_RUN = 1, HSIMODE_RESET = 
-    ROS_INFO("HSI Output: %d", magReg.hsiOutput); //HSIOUTPUT_NOONBOARD = 1 (HSI not applied), HSIOUTPUT_USEONBOARD = 3 (HSI is applied)
-    ROS_INFO("HSI Converge Rate: %d", magReg.convergeRate); //1-5, 1 slow over 60-90sec, 5 fast over 15-20sec
+    drf = boost::bind(&dynamic_reconfigure_callback, _1, _2);
+    server.setCallback(drf);
 
     // You spin me right round, baby
     // Right round like a record, baby
