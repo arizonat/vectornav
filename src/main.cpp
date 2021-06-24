@@ -73,24 +73,25 @@ using namespace vn::xplat;
 VnSensor vs;
 
 void dynamic_reconfigure_callback(vectornav::VectornavConfig &config, uint32_t level){
-  ROS_INFO("===Configuration Update===");
+  ROS_INFO("Configuration update requested...");
   VpeBasicControlRegister vpeReg = vs.readVpeBasicControl();
   vpeReg.headingMode = static_cast<HeadingMode>(config.vpereg_headingmode);
   vpeReg.enable = static_cast<VpeEnable>(config.vpereg_enable);
   vpeReg.filteringMode = static_cast<VpeMode>(config.vpereg_filteringmode);
   vpeReg.tuningMode = static_cast<VpeMode>(config.vpereg_tuningmode);
   vs.writeVpeBasicControl(vpeReg);
-  vpeReg = vs.readVpeBasicControl();
-  ROS_INFO("Heading mode: %d", vpeReg.headingMode);
-  ROS_INFO("VPE Enabled: %d", vpeReg.enable);
-  ROS_INFO("Filtering Mode: %d", vpeReg.filteringMode);
-  ROS_INFO("Tuning Mode: %d", vpeReg.tuningMode);
-  
+
   MagnetometerCalibrationControlRegister magReg = vs.readMagnetometerCalibrationControl();
   magReg.hsiMode = static_cast<HsiMode>(config.magreg_mode);
   magReg.hsiOutput = static_cast<HsiOutput>(config.magreg_output);
   magReg.convergeRate = config.magreg_convergerate;
+
+  vpeReg = vs.readVpeBasicControl();
   magReg = vs.readMagnetometerCalibrationControl();
+  ROS_INFO("Heading mode: %d", vpeReg.headingMode);
+  ROS_INFO("VPE Enabled: %d", vpeReg.enable);
+  ROS_INFO("Filtering Mode: %d", vpeReg.filteringMode);
+  ROS_INFO("Tuning Mode: %d", vpeReg.tuningMode);
   ROS_INFO("HSI Mode: %d", magReg.hsiMode); 
   ROS_INFO("HSI Output: %d", magReg.hsiOutput);
   ROS_INFO("HSI Converge Rate: %d", magReg.convergeRate);
