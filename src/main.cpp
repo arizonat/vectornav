@@ -43,14 +43,15 @@
 
 #include <dynamic_reconfigure/server.h>
 #include <vectornav/VectornavConfig.h>
+#include <diagnostic_updater/diagnostic_updater.h>
 
 ros::Publisher pubIMU, pubMag, pubGPS, pubOdom, pubTemp, pubPres, pubIns;
 ros::ServiceServer resetOdomSrv;
 
 //Unused covariances initilized to zero's
-boost::array<double, 9ul> linear_accel_covariance = { };
-boost::array<double, 9ul> angular_vel_covariance = { };
-boost::array<double, 9ul> orientation_covariance = { };
+boost::array<double, 9ul> linear_accel_covariance = {};
+boost::array<double, 9ul> angular_vel_covariance = {};
+boost::array<double, 9ul> orientation_covariance = {};
 XmlRpc::XmlRpcValue rpc_temp;
 
 // Custom user data to pass to packet callback function
@@ -72,40 +73,40 @@ using namespace vn::xplat;
 // Create a VnSensor object and connect to sensor
 VnSensor vs;
 
-void dynamic_reconfigure_callback(vectornav::VectornavConfig &config, uint32_t level){
-  ROS_INFO("Configuration update requested...");
-  VpeBasicControlRegister vpeReg = vs.readVpeBasicControl();
-  vpeReg.headingMode = static_cast<HeadingMode>(config.vpereg_headingmode);
-  vpeReg.enable = static_cast<VpeEnable>(config.vpereg_enable);
-  vpeReg.filteringMode = static_cast<VpeMode>(config.vpereg_filteringmode);
-  vpeReg.tuningMode = static_cast<VpeMode>(config.vpereg_tuningmode);
-  vs.writeVpeBasicControl(vpeReg);
+void dynamic_reconfigure_callback(vectornav::VectornavConfig &config, uint32_t level) {
+    ROS_INFO("Configuration update requested...");
+    VpeBasicControlRegister vpeReg = vs.readVpeBasicControl();
+    vpeReg.headingMode = static_cast<HeadingMode>(config.vpereg_headingmode);
+    vpeReg.enable = static_cast<VpeEnable>(config.vpereg_enable);
+    vpeReg.filteringMode = static_cast<VpeMode>(config.vpereg_filteringmode);
+    vpeReg.tuningMode = static_cast<VpeMode>(config.vpereg_tuningmode);
+    vs.writeVpeBasicControl(vpeReg);
 
-  MagnetometerCalibrationControlRegister magReg = vs.readMagnetometerCalibrationControl();
-  magReg.hsiMode = static_cast<HsiMode>(config.magreg_mode);
-  magReg.hsiOutput = static_cast<HsiOutput>(config.magreg_output);
-  magReg.convergeRate = config.magreg_convergerate;
+    MagnetometerCalibrationControlRegister magReg = vs.readMagnetometerCalibrationControl();
+    magReg.hsiMode = static_cast<HsiMode>(config.magreg_mode);
+    magReg.hsiOutput = static_cast<HsiOutput>(config.magreg_output);
+    magReg.convergeRate = config.magreg_convergerate;
 
-  // Configure the VPE and HSI Control Registers
-  // Heading modes: HEADINGMODE_ABSOLUTE=0, HEADINGMODE_RELATIVE=1, HEADINGMODE_INDOOR=2
-  // Filtering modes: OFF=0, ON=1
-  // Tuning modes: OFF=0, ON=1
-  // HSIMODE_OFF = 0, HSIMODE_RUN = 1, HSIMODE_RESET = 2
-  // HSIOUTPUT_NOONBOARD = 1 (HSI not applied), HSIOUTPUT_USEONBOARD = 3 (HSI is applied)
-  //1-5, 1 slow over 60-90sec, 5 fast over 15-20sec
-  vpeReg = vs.readVpeBasicControl();
-  magReg = vs.readMagnetometerCalibrationControl();
-  ROS_INFO("Heading mode: %d", vpeReg.headingMode);
-  ROS_INFO("VPE Enabled: %d", vpeReg.enable);
-  ROS_INFO("Filtering Mode: %d", vpeReg.filteringMode);
-  ROS_INFO("Tuning Mode: %d", vpeReg.tuningMode);
-  ROS_INFO("HSI Mode: %d", magReg.hsiMode); 
-  ROS_INFO("HSI Output: %d", magReg.hsiOutput);
-  ROS_INFO("HSI Converge Rate: %d", magReg.convergeRate);
+    // Configure the VPE and HSI Control Registers
+    // Heading modes: HEADINGMODE_ABSOLUTE=0, HEADINGMODE_RELATIVE=1, HEADINGMODE_INDOOR=2
+    // Filtering modes: OFF=0, ON=1
+    // Tuning modes: OFF=0, ON=1
+    // HSIMODE_OFF = 0, HSIMODE_RUN = 1, HSIMODE_RESET = 2
+    // HSIOUTPUT_NOONBOARD = 1 (HSI not applied), HSIOUTPUT_USEONBOARD = 3 (HSI is applied)
+    //1-5, 1 slow over 60-90sec, 5 fast over 15-20sec
+    vpeReg = vs.readVpeBasicControl();
+    magReg = vs.readMagnetometerCalibrationControl();
+    ROS_INFO("Heading mode: %d", vpeReg.headingMode);
+    ROS_INFO("VPE Enabled: %d", vpeReg.enable);
+    ROS_INFO("Filtering Mode: %d", vpeReg.filteringMode);
+    ROS_INFO("Tuning Mode: %d", vpeReg.tuningMode);
+    ROS_INFO("HSI Mode: %d", magReg.hsiMode);
+    ROS_INFO("HSI Output: %d", magReg.hsiOutput);
+    ROS_INFO("HSI Converge Rate: %d", magReg.convergeRate);
 }
 
 // Method declarations for future use.
-void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index);
+void BinaryAsyncMessageReceived(void *userData, Packet &p, size_t index);
 
 // frame id used only for Odom header.frame_id
 std::string map_frame_id;
@@ -119,35 +120,53 @@ bool frame_based_enu;
 vec3d initial_position;
 bool initial_position_set = false;
 
+bool hasData = false;
+double lastDataTime = 0;
+
 // Basic loop so we can initilize our covariance parameters above
-boost::array<double, 9ul> setCov(XmlRpc::XmlRpcValue rpc){
+boost::array<double, 9ul> setCov(XmlRpc::XmlRpcValue rpc) {
     // Output covariance vector
-    boost::array<double, 9ul> output = { 0.0 };
+    boost::array<double, 9ul> output = {0.0};
 
     // Convert the RPC message to array
     ROS_ASSERT(rpc.getType() == XmlRpc::XmlRpcValue::TypeArray);
 
-    for(int i = 0; i < 9; i++){
+    for (int i = 0; i < 9; i++) {
         ROS_ASSERT(rpc[i].getType() == XmlRpc::XmlRpcValue::TypeDouble);
-        output[i] = (double)rpc[i];
+        output[i] = (double) rpc[i];
     }
     return output;
 }
 
 // Reset initial position to current position
-bool resetOdom(std_srvs::Empty::Request &req, std_srvs::Empty::Response &resp)
-{
+bool resetOdom(std_srvs::Empty::Request &req, std_srvs::Empty::Response &resp) {
     initial_position_set = false;
     return true;
 }
 
-int main(int argc, char *argv[])
-{
+void updateDiagnostics(diagnostic_updater::DiagnosticStatusWrapper &stat) {
+    stat.add("IMU Frame", frame_id);
+    stat.add("tf_ned_to_enu", tf_ned_to_enu);
+    stat.add("frame_based_enu", frame_based_enu);
+
+    if (hasData) {
+        stat.summary(0, "VN100 on port running");
+    } else {
+        stat.summary(2, "VN100 timed out");
+    }
+}
+
+int main(int argc, char *argv[]) {
     // ROS node init
     ros::init(argc, argv, "vectornav");
     ros::NodeHandle n;
     ros::NodeHandle pn("~");
 
+    //Diagnostic updater
+    diagnostic_updater::Updater updater;
+    updater.setHardwareID("VN100");
+    updater.add("VN100 Status", updateDiagnostics);
+    updater.broadcast(2, "Starting VN100 Driver");
 
     pubIMU = n.advertise<sensor_msgs::Imu>("vectornav/IMU", 1000);
     pubMag = n.advertise<sensor_msgs::MagneticField>("vectornav/Mag", 1000);
@@ -178,16 +197,13 @@ int main(int argc, char *argv[])
     pn.param<int>("fixed_imu_rate", SensorImuRate, 800);
 
     //Call to set covariances
-    if(pn.getParam("linear_accel_covariance",rpc_temp))
-    {
+    if (pn.getParam("linear_accel_covariance", rpc_temp)) {
         linear_accel_covariance = setCov(rpc_temp);
     }
-    if(pn.getParam("angular_vel_covariance",rpc_temp))
-    {
+    if (pn.getParam("angular_vel_covariance", rpc_temp)) {
         angular_vel_covariance = setCov(rpc_temp);
     }
-    if(pn.getParam("orientation_covariance",rpc_temp))
-    {
+    if (pn.getParam("orientation_covariance", rpc_temp)) {
         orientation_covariance = setCov(rpc_temp);
     }
 
@@ -198,7 +214,7 @@ int main(int argc, char *argv[])
     // Run through all of the acceptable baud rates until we are connected
     // Looping in case someone has changed the default
     bool baudSet = false;
-    while(!baudSet){
+    while (!baudSet) {
         // Make this variable only accessible in the while loop
         static int i = 0;
         defaultBaudrate = vs.supportedBaudrates()[i];
@@ -211,21 +227,20 @@ int main(int argc, char *argv[])
         // Acceptable baud rates 9600, 19200, 38400, 57600, 128000, 115200, 230400, 460800, 921600
         // Data sheet says 128000 is a valid baud rate. It doesn't work with the VN100 so it is excluded.
         // All other values seem to work fine.
-        try{
+        try {
             // Connect to sensor at it's default rate
-            if(defaultBaudrate != 128000 && SensorBaudrate != 128000)
-            {
+            if (defaultBaudrate != 128000 && SensorBaudrate != 128000) {
                 vs.connect(SensorPort, defaultBaudrate);
                 // Issues a change baudrate to the VectorNav sensor and then
                 // reconnects the attached serial port at the new baudrate.
                 vs.changeBaudRate(SensorBaudrate);
                 // Only makes it here once we have the default correct
-                ROS_INFO("Connected baud rate is %d",vs.baudrate());
+                ROS_INFO("Connected baud rate is %d", vs.baudrate());
                 baudSet = true;
             }
         }
-        // Catch all oddities
-        catch(...){
+            // Catch all oddities
+        catch (...) {
             // Disconnect if we had the wrong default and we were connected
             vs.disconnect();
             ros::Duration(0.2).sleep();
@@ -234,17 +249,15 @@ int main(int argc, char *argv[])
         i++;
         // There are only 9 available data rates, if no connection
         // made yet possibly a hardware malfunction?
-        if(i > 8)
-        {
+        if (i > 8) {
             break;
         }
     }
 
     // Now we verify connection (Should be good if we made it this far)
-    if(vs.verifySensorConnectivity())
-    {
+    if (vs.verifySensorConnectivity()) {
         ROS_INFO("Device connection established");
-    }else{
+    } else {
         ROS_ERROR("No device communication");
         ROS_WARN("Please input a valid baud rate. Valid are:");
         ROS_WARN("9600, 19200, 38400, 57600, 115200, 128000, 230400, 460800, 921600");
@@ -304,12 +317,19 @@ int main(int argc, char *argv[])
     drf = boost::bind(&dynamic_reconfigure_callback, _1, _2);
     server.setCallback(drf);
 
+    //Loop the status checking at 20hz
+    ros::Rate rate = ros::Rate(20);
+
     // You spin me right round, baby
     // Right round like a record, baby
     // Right round round round
-    while (ros::ok())
-    {
-        ros::spin(); // Need to make sure we disconnect properly. Check if all ok.
+    while (ros::ok()) {
+        ros::spinOnce(); // Need to make sure we disconnect properly. Check if all ok.
+
+        hasData = ros::Time::now().toSec() <= lastDataTime + 1;
+
+        updater.update();
+        rate.sleep();
     }
 
     // Node has been terminated
@@ -325,45 +345,42 @@ int main(int argc, char *argv[])
 //
 // Callback function to process data packet from sensor
 //
-void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
-{
+void BinaryAsyncMessageReceived(void *userData, Packet &p, size_t index) {
+    lastDataTime = ros::Time::now().toSec();
+
     vn::sensors::CompositeData cd = vn::sensors::CompositeData::parse(p);
-    UserData user_data = *static_cast<UserData*>(userData);
+    UserData user_data = *static_cast<UserData *>(userData);
 
     // IMU
     sensor_msgs::Imu msgIMU;
     msgIMU.header.stamp = ros::Time::now();
     msgIMU.header.frame_id = frame_id;
 
-    if (cd.hasQuaternion() && cd.hasAngularRate() && cd.hasAcceleration())
-    {
+    if (cd.hasQuaternion() && cd.hasAngularRate() && cd.hasAcceleration()) {
 
         vec4f q = cd.quaternion();
         vec3f ar = cd.angularRate();
         vec3f al = cd.acceleration();
 
-        if (cd.hasAttitudeUncertainty())
-        {
+        if (cd.hasAttitudeUncertainty()) {
             vec3f orientationStdDev = cd.attitudeUncertainty();
-            msgIMU.orientation_covariance[0] = pow(orientationStdDev[2]*M_PI/180, 2); // Convert to radians Roll
-            msgIMU.orientation_covariance[4] = pow(orientationStdDev[1]*M_PI/180, 2); // Convert to radians Pitch
-            msgIMU.orientation_covariance[8] = pow(orientationStdDev[0]*M_PI/180, 2); // Convert to radians Yaw
+            msgIMU.orientation_covariance[0] = pow(orientationStdDev[2] * M_PI / 180, 2); // Convert to radians Roll
+            msgIMU.orientation_covariance[4] = pow(orientationStdDev[1] * M_PI / 180, 2); // Convert to radians Pitch
+            msgIMU.orientation_covariance[8] = pow(orientationStdDev[0] * M_PI / 180, 2); // Convert to radians Yaw
         }
 
         //Quaternion message comes in as a Yaw (z) pitch (y) Roll (x) format
-        if (tf_ned_to_enu)
-        {
+        if (tf_ned_to_enu) {
             // If we want the orientation to be based on the reference label on the imu
-            tf2::Quaternion tf2_quat(q[0],q[1],q[2],q[3]);
+            tf2::Quaternion tf2_quat(q[0], q[1], q[2], q[3]);
             geometry_msgs::Quaternion quat_msg;
 
-            if(frame_based_enu)
-            {
+            if (frame_based_enu) {
                 // Create a rotation from NED -> ENU
                 tf2::Quaternion q_rotate;
-                q_rotate.setRPY (M_PI, 0.0, M_PI/2);
+                q_rotate.setRPY(M_PI, 0.0, M_PI / 2);
                 // Apply the NED to ENU rotation such that the coordinate frame matches
-                tf2_quat = q_rotate*tf2_quat;
+                tf2_quat = q_rotate * tf2_quat;
                 quat_msg = tf2::toMsg(tf2_quat);
 
                 // Since everything is in the normal frame, no flipping required
@@ -374,9 +391,7 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
                 msgIMU.linear_acceleration.x = al[0];
                 msgIMU.linear_acceleration.y = al[1];
                 msgIMU.linear_acceleration.z = al[2];
-            }
-            else
-            {
+            } else {
                 // put into ENU - swap X/Y, invert Z
                 quat_msg.x = q[1];
                 quat_msg.y = q[0];
@@ -392,19 +407,16 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
                 msgIMU.linear_acceleration.y = al[0];
                 msgIMU.linear_acceleration.z = -al[2];
 
-                if (cd.hasAttitudeUncertainty())
-                {
+                if (cd.hasAttitudeUncertainty()) {
                     vec3f orientationStdDev = cd.attitudeUncertainty();
-                    msgIMU.orientation_covariance[0] = pow(orientationStdDev[1]*M_PI/180, 2); // Convert to radians pitch
-                    msgIMU.orientation_covariance[4] = pow(orientationStdDev[0]*M_PI/180, 2); // Convert to radians Roll
-                    msgIMU.orientation_covariance[8] = pow(orientationStdDev[2]*M_PI/180, 2); // Convert to radians Yaw
+                    msgIMU.orientation_covariance[0] = pow(orientationStdDev[1] * M_PI / 180, 2); // Convert to radians pitch
+                    msgIMU.orientation_covariance[4] = pow(orientationStdDev[0] * M_PI / 180, 2); // Convert to radians Roll
+                    msgIMU.orientation_covariance[8] = pow(orientationStdDev[2] * M_PI / 180, 2); // Convert to radians Yaw
                 }
             }
 
-          msgIMU.orientation = quat_msg;
-        }
-        else
-        {
+            msgIMU.orientation = quat_msg;
+        } else {
             msgIMU.orientation.x = q[0];
             msgIMU.orientation.y = q[1];
             msgIMU.orientation.z = q[2];
@@ -424,8 +436,7 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
     }
 
     // Magnetic Field
-    if (cd.hasMagnetic())
-    {
+    if (cd.hasMagnetic()) {
         vec3f mag = cd.magnetic();
         sensor_msgs::MagneticField msgMag;
         msgMag.header.stamp = msgIMU.header.stamp;
@@ -437,8 +448,7 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
     }
 
     // GPS
-    if (user_data.device_family != VnSensor::Family::VnSensor_Family_Vn100)
-    {
+    if (user_data.device_family != VnSensor::Family::VnSensor_Family_Vn100) {
         vec3d lla = cd.positionEstimatedLla();
 
         sensor_msgs::NavSatFix msgGPS;
@@ -449,16 +459,14 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
         msgGPS.altitude = lla[2];
 
         // Read the estimation uncertainty (1 Sigma) from the sensor and write it to the covariance matrix.
-        if(cd.hasPositionUncertaintyEstimated())
-        {
+        if (cd.hasPositionUncertaintyEstimated()) {
             double posVariance = pow(cd.positionUncertaintyEstimated(), 2);
             msgGPS.position_covariance[0] = posVariance;    // East position variance
             msgGPS.position_covariance[4] = posVariance;    // North position vaciance
             msgGPS.position_covariance[8] = posVariance;    // Up position variance
 
             // mark gps fix as not available if the outputted standard deviation is 0
-            if(cd.positionUncertaintyEstimated() != 0.0)
-            {
+            if (cd.positionUncertaintyEstimated() != 0.0) {
                 // Position available
                 msgGPS.status.status = sensor_msgs::NavSatStatus::STATUS_FIX;
             } else {
@@ -475,8 +483,7 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
         pubGPS.publish(msgGPS);
 
         // Odometry
-        if (pubOdom.getNumSubscribers() > 0)
-        {
+        if (pubOdom.getNumSubscribers() > 0) {
             nav_msgs::Odometry msgOdom;
             msgOdom.header.stamp = msgIMU.header.stamp;
             msgOdom.child_frame_id = frame_id;
@@ -485,8 +492,7 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
             // add position as earth fixed frame
             vec3d pos = cd.positionEstimatedEcef();
 
-            if (!initial_position_set)
-            {
+            if (!initial_position_set) {
                 initial_position_set = true;
                 initial_position.x = pos[0];
                 initial_position.y = pos[1];
@@ -498,34 +504,32 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
             msgOdom.pose.pose.position.z = pos[2] - initial_position[2];
 
             // Read the estimation uncertainty (1 Sigma) from the sensor and write it to the covariance matrix.
-            if(cd.hasPositionUncertaintyEstimated())
-            {
+            if (cd.hasPositionUncertaintyEstimated()) {
                 double posVariance = pow(cd.positionUncertaintyEstimated(), 2);
                 msgOdom.pose.covariance[0] = posVariance;   // x-axis position variance
                 msgOdom.pose.covariance[7] = posVariance;   // y-axis position vaciance
                 msgOdom.pose.covariance[14] = posVariance;  // z-axis position variance
             }
 
-            if (cd.hasQuaternion())
-            {
+            if (cd.hasQuaternion()) {
                 vec4f q = cd.quaternion();
 
-                if(!tf_ned_to_enu) {
+                if (!tf_ned_to_enu) {
                     // output in NED frame
                     msgOdom.pose.pose.orientation.x = q[0];
                     msgOdom.pose.pose.orientation.y = q[1];
                     msgOdom.pose.pose.orientation.z = q[2];
                     msgOdom.pose.pose.orientation.w = q[3];
-                } else if(tf_ned_to_enu && frame_based_enu) {
+                } else if (tf_ned_to_enu && frame_based_enu) {
                     // standard conversion from NED to ENU frame
-                    tf2::Quaternion tf2_quat(q[0],q[1],q[2],q[3]);
+                    tf2::Quaternion tf2_quat(q[0], q[1], q[2], q[3]);
                     // Create a rotation from NED -> ENU
                     tf2::Quaternion q_rotate;
-                    q_rotate.setRPY (M_PI, 0.0, M_PI/2);
+                    q_rotate.setRPY(M_PI, 0.0, M_PI / 2);
                     // Apply the NED to ENU rotation such that the coordinate frame matches
-                    tf2_quat = q_rotate*tf2_quat;
+                    tf2_quat = q_rotate * tf2_quat;
                     msgOdom.pose.pose.orientation = tf2::toMsg(tf2_quat);
-                } else if(tf_ned_to_enu && !frame_based_enu) {
+                } else if (tf_ned_to_enu && !frame_based_enu) {
                     // alternative method for conversion to ENU frame (leads to another result)
                     // put into ENU - swap X/Y, invert Z
                     msgOdom.pose.pose.orientation.x = q[1];
@@ -533,14 +537,13 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
                     msgOdom.pose.pose.orientation.z = -q[2];
                     msgOdom.pose.pose.orientation.w = q[3];
                 }
-                
+
 
                 // Read the estimation uncertainty (1 Sigma) from the sensor and write it to the covariance matrix.
-                if(cd.hasAttitudeUncertainty())
-                {
+                if (cd.hasAttitudeUncertainty()) {
                     vec3f orientationStdDev = cd.attitudeUncertainty();
                     // convert the standard deviation values from all three axis from degrees to radiant and calculate the variances from these (squared), which are assigned to the covariance matrix.
-                    if(!tf_ned_to_enu || frame_based_enu) {
+                    if (!tf_ned_to_enu || frame_based_enu) {
                         // standard assignment of variance values for NED frame and conversion to ENU frame by rotation
                         msgOdom.pose.covariance[21] = pow(orientationStdDev[0] * M_PI / 180, 2);    // roll variance
                         msgOdom.pose.covariance[28] = pow(orientationStdDev[1] * M_PI / 180, 2);    // pitch variance
@@ -554,11 +557,10 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
             }
 
             // Add the velocity in the body frame (frame_id) to the message
-            if (cd.hasVelocityEstimatedBody())
-            {
+            if (cd.hasVelocityEstimatedBody()) {
                 vec3f vel = cd.velocityEstimatedBody();
 
-                if(!tf_ned_to_enu || frame_based_enu) {
+                if (!tf_ned_to_enu || frame_based_enu) {
                     // standard assignment of values for NED frame and conversion to ENU frame by rotation
                     msgOdom.twist.twist.linear.x = vel[0];
                     msgOdom.twist.twist.linear.y = vel[1];
@@ -572,19 +574,17 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
                 }
 
                 // Read the estimation uncertainty (1 Sigma) from the sensor and write it to the covariance matrix.
-                if(cd.hasVelocityUncertaintyEstimated())
-                {
+                if (cd.hasVelocityUncertaintyEstimated()) {
                     double velVariance = pow(cd.velocityUncertaintyEstimated(), 2);
                     msgOdom.twist.covariance[0] = velVariance;  // x-axis velocity variance
                     msgOdom.twist.covariance[7] = velVariance;  // y-axis velocity vaciance
                     msgOdom.twist.covariance[14] = velVariance; // z-axis velocity variance
                 }
             }
-            if (cd.hasAngularRate())
-            {
+            if (cd.hasAngularRate()) {
                 vec3f ar = cd.angularRate();
 
-                 if(!tf_ned_to_enu || frame_based_enu) {
+                if (!tf_ned_to_enu || frame_based_enu) {
                     // standard assignment of values for NED frame and conversion to ENU frame by rotation
                     msgOdom.twist.twist.angular.x = ar[0];
                     msgOdom.twist.twist.angular.y = ar[1];
@@ -599,9 +599,9 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
 
                 // add covariance matrix of the measured angular rate to odom message.
                 // go through matrix rows
-                for(int row = 0; row < 3; row++) {
+                for (int row = 0; row < 3; row++) {
                     // go through matrix columns
-                    for(int col = 0; col < 3; col++) {
+                    for (int col = 0; col < 3; col++) {
                         // Target matrix has 6 rows and 6 columns, source matrix has 3 rows and 3 columns. The covariance values are put into the fields (3, 3) to (5, 5) of the destination matrix.
                         msgOdom.twist.covariance[(row + 3) * 6 + (col + 3)] = angular_vel_covariance[row * 3 + col];
                     }
@@ -612,8 +612,7 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
     }
 
     // Temperature
-    if (cd.hasTemperature())
-    {
+    if (cd.hasTemperature()) {
         float temp = cd.temperature();
 
         sensor_msgs::Temperature msgTemp;
@@ -624,8 +623,7 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
     }
 
     // Barometer
-    if (cd.hasPressure())
-    {
+    if (cd.hasPressure()) {
         float pres = cd.pressure();
 
         sensor_msgs::FluidPressure msgPres;
@@ -640,23 +638,22 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
     msgINS.header.stamp = ros::Time::now();
     msgINS.header.frame_id = frame_id;
 
-    if (cd.hasInsStatus())
-    {
+    if (cd.hasInsStatus()) {
         InsStatus insStatus = cd.insStatus();
         msgINS.insStatus = static_cast<uint16_t>(insStatus);
     }
 
-    if (cd.hasTow()){
+    if (cd.hasTow()) {
         msgINS.time = cd.tow();
     }
 
-    if (cd.hasWeek()){
+    if (cd.hasWeek()) {
         msgINS.week = cd.week();
     }
 
-    if (cd.hasTimeUtc()){
+    if (cd.hasTimeUtc()) {
         TimeUtc utcTime = cd.timeUtc();
-        char* utcTimeBytes = reinterpret_cast<char*>(&utcTime);
+        char *utcTimeBytes = reinterpret_cast<char *>(&utcTime);
         //msgINS.utcTime bytes are in Little Endian Byte Order
         std::memcpy(&msgINS.utcTime, utcTimeBytes, 8);
     }
@@ -682,19 +679,18 @@ void BinaryAsyncMessageReceived(void* userData, Packet& p, size_t index)
         msgINS.nedVelZ = nedVel[2];
     }
 
-    if (cd.hasAttitudeUncertainty())
-    {
+    if (cd.hasAttitudeUncertainty()) {
         vec3f attUncertainty = cd.attitudeUncertainty();
         msgINS.attUncertainty[0] = attUncertainty[0];
         msgINS.attUncertainty[1] = attUncertainty[1];
         msgINS.attUncertainty[2] = attUncertainty[2];
     }
 
-    if (cd.hasPositionUncertaintyEstimated()){
+    if (cd.hasPositionUncertaintyEstimated()) {
         msgINS.posUncertainty = cd.positionUncertaintyEstimated();
     }
 
-    if (cd.hasVelocityUncertaintyEstimated()){
+    if (cd.hasVelocityUncertaintyEstimated()) {
         msgINS.velUncertainty = cd.velocityUncertaintyEstimated();
     }
 
