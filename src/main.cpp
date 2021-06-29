@@ -150,7 +150,7 @@ void updateDiagnostics(diagnostic_updater::DiagnosticStatusWrapper &stat) {
     stat.add("frame_based_enu", frame_based_enu);
 
     if (hasData) {
-        stat.summary(0, "VN100 on port running");
+        stat.summary(0, "VN100 running");
     } else {
         stat.summary(2, "VN100 timed out");
     }
