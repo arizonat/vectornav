@@ -164,7 +164,7 @@ int main(int argc, char *argv[]) {
 
     //Diagnostic updater
     diagnostic_updater::Updater updater;
-    updater.setHardwareID("VN100");
+    updater.setHardwareID("VectorNav VN100");
     updater.add("VN100 Status", updateDiagnostics);
     updater.broadcast(2, "Starting VN100 Driver");
 
