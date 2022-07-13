@@ -30,6 +30,8 @@
 
 // ROS Libraries
 #include "ros/ros.h"
+
+#include <std_msgs/Bool.h>
 #include "sensor_msgs/Imu.h"
 #include "sensor_msgs/MagneticField.h"
 #include "sensor_msgs/NavSatFix.h"
@@ -37,8 +39,10 @@
 #include "sensor_msgs/Temperature.h"
 #include "sensor_msgs/FluidPressure.h"
 #include "std_srvs/Empty.h"
+
 #include <tf2/LinearMath/Transform.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+
 #include <vectornav/Ins.h>
 
 #include <dynamic_reconfigure/server.h>
@@ -122,8 +126,9 @@ bool initial_position_set = false;
 
 bool hasData = false;
 double lastDataTime = 0;
+bool magnetic_disturbance_present = false;
 
-// Basic loop so we can initilize our covariance parameters above
+// Basic loop so we can initialize our covariance parameters above
 boost::array<double, 9ul> setCov(XmlRpc::XmlRpcValue rpc) {
     // Output covariance vector
     boost::array<double, 9ul> output = {0.0};
@@ -144,10 +149,23 @@ bool resetOdom(std_srvs::Empty::Request &req, std_srvs::Empty::Response &resp) {
     return true;
 }
 
+void magneticDisturbanceCallback(const std_msgs::Bool::ConstPtr &msg) {
+    if (magnetic_disturbance_present != msg->data) {
+        if (msg->data) {
+            ROS_WARN("Magnetic disturbance present");
+        } else {
+            ROS_WARN("No Magnetic disturbance present");
+        }
+        vs.magneticDisturbancePresent(msg->data);
+        magnetic_disturbance_present = msg->data;
+    }
+}
+
 void updateDiagnostics(diagnostic_updater::DiagnosticStatusWrapper &stat) {
     stat.add("IMU Frame", frame_id);
     stat.add("tf_ned_to_enu", tf_ned_to_enu);
     stat.add("frame_based_enu", frame_based_enu);
+    stat.add("Magnetic disturbance present", magnetic_disturbance_present);
 
     if (hasData) {
         stat.summary(0, "VN100 running");
@@ -175,6 +193,8 @@ int main(int argc, char *argv[]) {
     pubTemp = n.advertise<sensor_msgs::Temperature>("vectornav/Temp", 1000);
     pubPres = n.advertise<sensor_msgs::FluidPressure>("vectornav/Pres", 1000);
     pubIns = n.advertise<vectornav::Ins>("vectornav/INS", 1000);
+
+    auto subscriber = n.subscribe<std_msgs::Bool>("vectornav/magnetic_disturbance_present", 1, magneticDisturbanceCallback);
 
     resetOdomSrv = n.advertiseService("reset_odom", resetOdom);
 
